@@ -71,6 +71,20 @@ docker compose down
 - A caller can publish with a plain HTTP request; no TypeScript SDK is required.
 - Notifications can carry an arbitrary click URL.
 
+## Important limitation of this local phase
+
+This phase does **not** verify background Web Push on a phone. Self-hosted ntfy requires Web Push configuration for its PWA/background notifications, and the eventual public deployment should be served over HTTPS.
+
+The intended next phase is therefore:
+
+```text
+https://<notification-domain>
+        -> reverse proxy / TLS
+        -> ntfy
+```
+
+while the application being opened by the notification (for example mulmoterminal on LAN/Tailscale) can remain a separate HTTP service.
+
 ## Not evaluated yet
 
 - Self-hosted HTTPS deployment
