@@ -3,6 +3,8 @@ services:
     image: binwiederhier/ntfy:v2.27.0
     container_name: notify-server-ntfy
     command: serve
+    env_file:
+      - ./data/webpush.env
     environment:
       TZ: Asia/Tokyo
     volumes:
