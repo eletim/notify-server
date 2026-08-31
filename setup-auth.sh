@@ -33,13 +33,10 @@ fi
 
 docker compose exec -T -e NTFY_PASSWORD="$publisher_password" ntfy ntfy user add "$PUBLISHER_USER" >/dev/null
 docker compose exec -T ntfy ntfy access "$PUBLISHER_USER" '*' write-only >/dev/null
-docker compose exec -T ntfy ntfy token add --label=notify-cli "$PUBLISHER_USER" >/dev/null
 
-token_list="$(docker compose exec -T ntfy ntfy token list "$PUBLISHER_USER")"
-publisher_token="$(printf '%s\n' "$token_list" | grep 'notify-cli' | grep -Eo 'tk_[[:alnum:]]+' | head -n1 || true)"
-
-if [[ -z "$publisher_token" ]]; then
-  echo "Failed to read generated publisher token" >&2
+publisher_token="$(docker compose exec -T ntfy ntfy token add --label=notify-cli "$PUBLISHER_USER" | tr -d '\r\n')"
+if [[ ! "$publisher_token" =~ ^tk_[[:alnum:]]+$ ]]; then
+  echo "Failed to generate publisher token" >&2
   exit 1
 fi
 
