@@ -1,3 +1,6 @@
 base-url: https://eletim.jp
 cache-file: /var/cache/ntfy/cache.db
+auth-file: /var/cache/ntfy/auth.db
+auth-default-access: deny-all
+enable-login: true
 behind-proxy: true
