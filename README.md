@@ -1,11 +1,12 @@
 # notify-server
 
-Self-hosted notification server based on ntfy, with Caddy providing HTTPS, persistent Web Push, and private authentication.
+Self-hosted notification server based on ntfy, with Caddy providing HTTPS, persistent Web Push, private authentication, and a small integration CLI.
 
 ## Architecture
 
 ```text
-caller / CLI
+PurpleMux / LangGraph / shell / hooks
+  -> notify CLI
   -> HTTPS + Bearer token
   -> https://eletim.jp
   -> Caddy (:443)
@@ -85,25 +86,72 @@ NOTIFY_TOPIC=agents
 NOTIFY_TOKEN=tk_...
 ```
 
-Load it for a shell session:
+The token belongs to the non-admin `publisher` user, whose ACL is write-only. Integrations do not need the admin password.
+
+## notify CLI
+
+The repository contains a deliberately thin Bash CLI over ntfy's HTTP publish API. It hides ntfy-specific headers/auth details from callers such as PurpleMux.
+
+Install it for the current user (the only runtime dependency is `curl`, available as `sudo apt install curl` on Ubuntu):
 
 ```bash
-set -a
-source .auth.env
-set +a
+bash install-cli.sh
 ```
 
-Then publish with Bearer auth:
+This installs `notify` under `~/.local/bin` by default and creates:
+
+```text
+~/.config/notify/config
+```
+
+Configure it on each caller machine:
 
 ```bash
-curl \
-  -H "Authorization: Bearer $NOTIFY_TOKEN" \
-  -H 'Title: Test notification' \
-  -d 'hello from notify-server' \
-  "$NOTIFY_SERVER/$NOTIFY_TOPIC"
+NOTIFY_SERVER=https://eletim.jp
+NOTIFY_TOPIC=agents
+NOTIFY_TOKEN=tk_...
 ```
 
-The machine token belongs to the non-admin `publisher` user, whose ACL is write-only for topics. Integrations do not need the admin password.
+Use the write-only token from the server's `.auth.env`; do not copy the admin password into integrations.
+
+Send a notification:
+
+```bash
+notify send \
+  --title 'Codex finished' \
+  --message 'PR #123 ready'
+```
+
+### PurpleMux integration
+
+PurpleMux currently navigates workspace and tab IDs through its CLI/runtime rather than URL routes. Use `purplemux workspaces` and `purplemux tab list -w WORKSPACE_ID` to obtain the IDs, and verify the target before notifying:
+
+```bash
+workspace_id="${PURPLEMUX_WORKSPACE_ID:?set from purplemux workspaces}"
+tab_id="${PURPLEMUX_TAB_ID:?set from purplemux tab list}"
+purplemux tab status -w "$workspace_id" "$tab_id" >/dev/null
+
+# Valid when the notification is opened on the same host as PurpleMux.
+purplemux_url="${PURPLEMUX_URL:-http://127.0.0.1:$(<"$HOME/.purplemux/port")/}"
+
+notify send \
+  --title 'PurpleMux task finished' \
+  --message "$workspace_id / $tab_id is ready for review" \
+  --click "$purplemux_url"
+```
+
+This block can be called as the final step of a shell hook or workflow. For notifications opened on another device, set `purplemux_url` to the browser-reachable HTTPS root that device already uses for PurpleMux; clicking opens PurpleMux, and the notification message identifies the workspace/tab to select. Do not construct a workspace/tab deep link, because PurpleMux does not expose one.
+
+Additional options:
+
+```text
+--topic TOPIC
+--priority VALUE
+--tags TAG1,TAG2
+--server URL
+```
+
+Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables; explicit environment values override the config file. `XDG_CONFIG_HOME` and `NOTIFY_CONFIG` are supported for alternate config locations. HTTPS is required except for loopback development servers, and redirects are rejected rather than reported as successful publishes. Connections time out after 5 seconds and the entire request after 15 seconds by default; set positive `NOTIFY_CONNECT_TIMEOUT` and `NOTIFY_TIMEOUT` values to override them. The CLI exits non-zero on missing configuration, network failures, timeouts, or HTTP authorization/errors and does not print the token or place it in curl's process arguments. User curl configuration is disabled for consistent, non-verbose operation.
 
 ### Rotate credentials and tokens
 
@@ -171,6 +219,12 @@ curl \
   "$NOTIFY_SERVER/$NOTIFY_TOPIC"
 ```
 
+CLI smoke test:
+
+```bash
+NOTIFY_TOKEN="$NOTIFY_TOKEN" bin/notify send --topic agents --message 'CLI test'
+```
+
 ## Configuration
 
 - `Caddyfile`: public HTTPS hostname and reverse proxy
@@ -178,6 +232,8 @@ curl \
 - `docker-compose.yml`: ntfy + Caddy services and persistent volumes
 - `start.sh`: one-command startup and first-run bootstrap
 - `setup-auth.sh`: native ntfy user/ACL/token bootstrap
+- `bin/notify`: integration CLI
+- `install-cli.sh`: user-local CLI installer
 - `remove-anonymous-webpush.py`: idempotent upgrade cleanup for legacy anonymous Web Push subscriptions
 - `.webpush.env`: generated VAPID keys (secret, gitignored)
 - `.auth.env`: generated admin login + publisher token (secret, gitignored)

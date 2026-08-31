@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${NOTIFY_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/notify/config}"
+
+# Preserve explicit environment values so they take precedence over the config file.
+server_from_env="${NOTIFY_SERVER-}"
+topic_from_env="${NOTIFY_TOPIC-}"
+token_from_env="${NOTIFY_TOKEN-}"
+connect_timeout_from_env="${NOTIFY_CONNECT_TIMEOUT-}"
+timeout_from_env="${NOTIFY_TIMEOUT-}"
+server_is_set="${NOTIFY_SERVER+x}"
+topic_is_set="${NOTIFY_TOPIC+x}"
+token_is_set="${NOTIFY_TOKEN+x}"
+connect_timeout_is_set="${NOTIFY_CONNECT_TIMEOUT+x}"
+timeout_is_set="${NOTIFY_TIMEOUT+x}"
+
+if [[ -r "$CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+[[ -z "$server_is_set" ]] || NOTIFY_SERVER="$server_from_env"
+[[ -z "$topic_is_set" ]] || NOTIFY_TOPIC="$topic_from_env"
+[[ -z "$token_is_set" ]] || NOTIFY_TOKEN="$token_from_env"
+[[ -z "$connect_timeout_is_set" ]] || NOTIFY_CONNECT_TIMEOUT="$connect_timeout_from_env"
+[[ -z "$timeout_is_set" ]] || NOTIFY_TIMEOUT="$timeout_from_env"
+unset token_from_env
+
+usage() {
+  cat <<'EOF'
+Usage:
+  notify send --message MESSAGE [options]
+
+Options:
+  --title TITLE       Notification title
+  --message MESSAGE   Notification body
+  --click URL         URL opened when the notification is tapped
+  --priority VALUE    ntfy priority (min, low, default, high, max or 1-5)
+  --tags TAGS         Comma-separated ntfy tags/emojis
+  --topic TOPIC       Override NOTIFY_TOPIC
+  --server URL        Override NOTIFY_SERVER
+  -h, --help          Show this help
+
+Configuration (environment or ~/.config/notify/config):
+  NOTIFY_SERVER=https://eletim.jp
+  NOTIFY_TOPIC=agents
+  NOTIFY_TOKEN=tk_...
+  NOTIFY_CONNECT_TIMEOUT=5
+  NOTIFY_TIMEOUT=15
+EOF
+}
+
+fail() {
+  echo "notify: $*" >&2
+  exit 2
+}
+
+validate_timeout() {
+  local name="$1" value="$2"
+  [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "$name must be a positive number of seconds"
+  [[ ! "$value" =~ ^0+([.]0+)?$ ]] || fail "$name must be greater than zero"
+}
+
+validate_header_value() {
+  local name="$1" value="$2"
+  [[ "$value" != *$'\r'* && "$value" != *$'\n'* ]] || fail "$name must not contain CR or LF"
+}
+
+validate_server() {
+  local value="$1"
+  [[ "$value" == https://* ]] && return 0
+  [[ "$value" =~ ^http://localhost(:[0-9]+)?(/.*)?$ ]] && return 0
+  [[ "$value" =~ ^http://127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(:[0-9]+)?(/.*)?$ ]] && return 0
+  [[ "$value" =~ ^http://\[::1\](:[0-9]+)?(/.*)?$ ]] && return 0
+  fail "server must use https (http is allowed only for loopback servers)"
+}
+
+[[ $# -gt 0 ]] || { usage; exit 2; }
+command="$1"
+shift
+
+case "$command" in
+  send) ;;
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  *) fail "unknown command: $command" ;;
+esac
+
+server="${NOTIFY_SERVER:-https://eletim.jp}"
+topic="${NOTIFY_TOPIC:-}"
+token="${NOTIFY_TOKEN:-}"
+export -n token
+connect_timeout="${NOTIFY_CONNECT_TIMEOUT:-5}"
+timeout="${NOTIFY_TIMEOUT:-15}"
+title=""
+message=""
+click=""
+priority=""
+tags=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --title)
+      [[ $# -ge 2 ]] || fail "--title requires a value"
+      title="$2"; shift 2 ;;
+    --message)
+      [[ $# -ge 2 ]] || fail "--message requires a value"
+      message="$2"; shift 2 ;;
+    --click)
+      [[ $# -ge 2 ]] || fail "--click requires a value"
+      click="$2"; shift 2 ;;
+    --priority)
+      [[ $# -ge 2 ]] || fail "--priority requires a value"
+      priority="$2"; shift 2 ;;
+    --tags)
+      [[ $# -ge 2 ]] || fail "--tags requires a value"
+      tags="$2"; shift 2 ;;
+    --topic)
+      [[ $# -ge 2 ]] || fail "--topic requires a value"
+      topic="$2"; shift 2 ;;
+    --server)
+      [[ $# -ge 2 ]] || fail "--server requires a value"
+      server="$2"; shift 2 ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+done
+
+[[ -n "$message" ]] || fail "--message is required"
+[[ -n "$topic" ]] || fail "NOTIFY_TOPIC or --topic is required"
+[[ -n "$token" ]] || fail "NOTIFY_TOKEN is required"
+[[ "$topic" =~ ^[A-Za-z0-9_-]+$ ]] || fail "topic may only contain letters, digits, _ and -"
+validate_header_value "NOTIFY_TOKEN" "$token"
+validate_header_value "--title" "$title"
+validate_header_value "--click" "$click"
+validate_header_value "--priority" "$priority"
+validate_header_value "--tags" "$tags"
+validate_timeout "NOTIFY_CONNECT_TIMEOUT" "$connect_timeout"
+validate_timeout "NOTIFY_TIMEOUT" "$timeout"
+command -v curl >/dev/null 2>&1 || fail "curl is required"
+
+server="${server%/}"
+validate_server "$server"
+
+curl_args=(
+  --disable
+  --fail
+  --silent
+  --show-error
+  --connect-timeout "$connect_timeout"
+  --max-time "$timeout"
+  --output /dev/null
+  --write-out '%{http_code}'
+  --request POST
+  --header @/dev/fd/3
+  --data-binary "$message"
+)
+
+[[ -z "$title" ]] || curl_args+=(--header "Title: $title")
+[[ -z "$click" ]] || curl_args+=(--header "Click: $click")
+[[ -z "$priority" ]] || curl_args+=(--header "Priority: $priority")
+[[ -z "$tags" ]] || curl_args+=(--header "Tags: $tags")
+
+# Do not propagate an exported token into curl's inspectable process environment.
+unset NOTIFY_TOKEN
+
+curl_status=0
+http_status="$(curl "${curl_args[@]}" "$server/$topic" 3<<<"Authorization: Bearer $token")" || curl_status=$?
+if (( curl_status != 0 )); then
+  echo "notify: publish failed" >&2
+  exit "$curl_status"
+fi
+if [[ ! "$http_status" =~ ^2[0-9][0-9]$ ]]; then
+  echo "notify: publish failed with HTTP $http_status" >&2
+  exit 1
+fi
+
+echo "notification sent to $topic"
