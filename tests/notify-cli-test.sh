@@ -18,6 +18,7 @@ if [[ -n "${NOTIFY_TEST_CURL_ERROR:-}" ]]; then
   echo "$NOTIFY_TEST_CURL_ERROR" >&2
   exit "${NOTIFY_TEST_CURL_STATUS:-1}"
 fi
+printf '%s' "${NOTIFY_TEST_HTTP_STATUS:-200}"
 EOF
 chmod +x "$test_dir/bin/curl"
 
@@ -98,6 +99,37 @@ for header_option in --title --click --priority --tags; do
   grep -q -- "$header_option must not contain CR or LF" "$test_dir/header-failure"
   [[ ! -e "$NOTIFY_TEST_ARGS" ]]
 done
+
+rm -f "$NOTIFY_TEST_ARGS"
+if NOTIFY_SERVER=http://notify.example \
+  NOTIFY_TOPIC=agents \
+  NOTIFY_TOKEN=secret-token \
+    "$repo_dir/bin/notify" send --message hello >"$test_dir/http-failure" 2>&1; then
+  echo 'expected non-loopback HTTP failure' >&2
+  exit 1
+fi
+grep -q 'server must use https' "$test_dir/http-failure"
+[[ ! -e "$NOTIFY_TEST_ARGS" ]]
+
+NOTIFY_SERVER=http://127.0.0.2:8080 \
+NOTIFY_TOPIC=agents \
+NOTIFY_TOKEN=secret-token \
+  "$repo_dir/bin/notify" send --message hello >/dev/null
+assert_arg 'http://127.0.0.2:8080/agents'
+
+if NOTIFY_TEST_HTTP_STATUS=308 \
+  NOTIFY_SERVER=https://notify.example \
+  NOTIFY_TOPIC=agents \
+  NOTIFY_TOKEN=secret-token \
+    "$repo_dir/bin/notify" send --message hello >"$test_dir/redirect-failure" 2>&1; then
+  echo 'expected redirect failure' >&2
+  exit 1
+fi
+grep -q 'notify: publish failed with HTTP 308' "$test_dir/redirect-failure"
+if grep -q 'notification sent' "$test_dir/redirect-failure"; then
+  echo 'redirect was incorrectly reported as success' >&2
+  exit 1
+fi
 
 cat > "$XDG_CONFIG_HOME/notify/config" <<'EOF'
 NOTIFY_SERVER=https://config.example

@@ -151,7 +151,7 @@ Additional options:
 --server URL
 ```
 
-Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables; explicit environment values override the config file. `XDG_CONFIG_HOME` and `NOTIFY_CONFIG` are supported for alternate config locations. Connections time out after 5 seconds and the entire request after 15 seconds by default; set positive `NOTIFY_CONNECT_TIMEOUT` and `NOTIFY_TIMEOUT` values to override them. The CLI exits non-zero on missing configuration, network failures, timeouts, or HTTP authorization/errors and does not print the token or place it in curl's process arguments. User curl configuration is disabled for consistent, non-verbose operation.
+Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables; explicit environment values override the config file. `XDG_CONFIG_HOME` and `NOTIFY_CONFIG` are supported for alternate config locations. HTTPS is required except for loopback development servers, and redirects are rejected rather than reported as successful publishes. Connections time out after 5 seconds and the entire request after 15 seconds by default; set positive `NOTIFY_CONNECT_TIMEOUT` and `NOTIFY_TIMEOUT` values to override them. The CLI exits non-zero on missing configuration, network failures, timeouts, or HTTP authorization/errors and does not print the token or place it in curl's process arguments. User curl configuration is disabled for consistent, non-verbose operation.
 
 ### Rotate credentials and tokens
 
