@@ -1,2 +1,3 @@
-base-url: http://localhost:8080
+base-url: https://eletim.jp
 cache-file: /var/cache/ntfy/cache.db
+behind-proxy: true
