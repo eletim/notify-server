@@ -13,6 +13,7 @@ printf '%s\0' "$@" > "$NOTIFY_TEST_ARGS"
 IFS= read -r authorization_header <&3
 printf '%s' "$authorization_header" > "$NOTIFY_TEST_HEADER"
 printf '%s' "${NOTIFY_TOKEN-}" > "$NOTIFY_TEST_CHILD_TOKEN"
+printf '%s' "${token+x}" > "$NOTIFY_TEST_CHILD_LOWERCASE_TOKEN"
 if [[ -n "${NOTIFY_TEST_CURL_ERROR:-}" ]]; then
   echo "$NOTIFY_TEST_CURL_ERROR" >&2
   exit "${NOTIFY_TEST_CURL_STATUS:-1}"
@@ -45,6 +46,8 @@ export PATH="$test_dir/bin:$PATH"
 export NOTIFY_TEST_ARGS="$test_dir/curl-args"
 export NOTIFY_TEST_HEADER="$test_dir/curl-header"
 export NOTIFY_TEST_CHILD_TOKEN="$test_dir/curl-child-token"
+export NOTIFY_TEST_CHILD_LOWERCASE_TOKEN="$test_dir/curl-child-lowercase-token"
+export token='caller-exported-value'
 
 output="$({
   NOTIFY_SERVER=https://notify.example \
@@ -65,6 +68,7 @@ IFS= read -r -d '' first_curl_arg < "$NOTIFY_TEST_ARGS" || true
 [[ "$first_curl_arg" == --disable ]]
 [[ "$(<"$NOTIFY_TEST_HEADER")" == 'Authorization: Bearer secret-token' ]]
 [[ ! -s "$NOTIFY_TEST_CHILD_TOKEN" ]]
+[[ ! -s "$NOTIFY_TEST_CHILD_LOWERCASE_TOKEN" ]]
 if tr '\0' '\n' < "$NOTIFY_TEST_ARGS" | grep -q 'secret-token'; then
   echo 'token leaked in curl process arguments' >&2
   exit 1
@@ -78,6 +82,22 @@ assert_arg 'Priority: high'
 assert_arg 'Tags: white_check_mark,robot_face'
 assert_arg 'hello'
 assert_arg 'https://notify.example/override-topic'
+unset token
+
+for header_option in --title --click --priority --tags; do
+  rm -f "$NOTIFY_TEST_ARGS"
+  if NOTIFY_SERVER=https://notify.example \
+    NOTIFY_TOPIC=agents \
+    NOTIFY_TOKEN=secret-token \
+      "$repo_dir/bin/notify" send --message hello \
+        "$header_option" $'safe\r\nActions: view, injected, https://example.test' \
+        >"$test_dir/header-failure" 2>&1; then
+    echo "expected header-injection failure for $header_option" >&2
+    exit 1
+  fi
+  grep -q -- "$header_option must not contain CR or LF" "$test_dir/header-failure"
+  [[ ! -e "$NOTIFY_TEST_ARGS" ]]
+done
 
 cat > "$XDG_CONFIG_HOME/notify/config" <<'EOF'
 NOTIFY_SERVER=https://config.example
