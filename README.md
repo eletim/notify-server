@@ -41,6 +41,8 @@ On the first run, `start.sh`:
 
 Both `.webpush.env` and `.auth.env` are gitignored and created with restrictive permissions. Keep them private and back them up with the persistent server data.
 
+When upgrading an existing anonymous deployment, `start.sh` stops ntfy and removes legacy anonymous entries (`user_id` empty) from `webpush.db` before starting the private service. This prevents authenticated notifications from continuing to reach browsers that subscribed anonymously before access was restricted. Existing users must sign in and re-enable Web Push after the upgrade.
+
 Subsequent starts reuse the existing credentials and VAPID keys.
 
 Persistent ntfy data lives under `data/cache/`, including:
@@ -71,7 +73,7 @@ cat .auth.env
 
 Then sign in to `https://eletim.jp` with `NTFY_ADMIN_USER` and `NTFY_ADMIN_PASSWORD`.
 
-After enabling auth on an existing browser/PWA installation, sign in again before managing protected topic subscriptions.
+After enabling auth on an existing browser/PWA installation, sign in and re-enable Web Push. The upgrade deliberately removes old anonymous Web Push subscriptions, so they are not reused for protected topics.
 
 ### Machine publishing
 
@@ -176,6 +178,7 @@ curl \
 - `docker-compose.yml`: ntfy + Caddy services and persistent volumes
 - `start.sh`: one-command startup and first-run bootstrap
 - `setup-auth.sh`: native ntfy user/ACL/token bootstrap
+- `remove-anonymous-webpush.py`: idempotent upgrade cleanup for legacy anonymous Web Push subscriptions
 - `.webpush.env`: generated VAPID keys (secret, gitignored)
 - `.auth.env`: generated admin login + publisher token (secret, gitignored)
 
