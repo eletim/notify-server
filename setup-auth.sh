@@ -23,6 +23,23 @@ random_secret() {
 
 admin_password="$(random_secret)"
 publisher_password="$(random_secret)"
+admin_created=false
+publisher_created=false
+
+rollback_partial_bootstrap() {
+  local status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "Authentication bootstrap failed; rolling back newly created users" >&2
+    if [[ "$publisher_created" == true ]]; then
+      docker compose exec -T ntfy ntfy user remove "$PUBLISHER_USER" >/dev/null 2>&1 || true
+    fi
+    if [[ "$admin_created" == true ]]; then
+      docker compose exec -T ntfy ntfy user remove "$ADMIN_USER" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+trap rollback_partial_bootstrap EXIT
 
 echo "==> Bootstrapping private ntfy authentication"
 
@@ -30,11 +47,14 @@ if ! docker compose exec -T -e NTFY_PASSWORD="$admin_password" ntfy ntfy user ad
   echo "Failed to create admin user. If auth.db already contains users but $AUTH_ENV was lost, recover credentials manually instead of recreating auth." >&2
   exit 1
 fi
+admin_created=true
 
 docker compose exec -T -e NTFY_PASSWORD="$publisher_password" ntfy ntfy user add "$PUBLISHER_USER" >/dev/null
+publisher_created=true
 docker compose exec -T ntfy ntfy access "$PUBLISHER_USER" '*' write-only >/dev/null
 
-publisher_token="$(docker compose exec -T ntfy ntfy token add --label=notify-cli "$PUBLISHER_USER" | tr -d '\r\n')"
+token_output="$(docker compose exec -T ntfy ntfy token add --label=notify-cli "$PUBLISHER_USER")"
+publisher_token="$(printf '%s\n' "$token_output" | grep -Eo 'tk_[[:alnum:]]+' | head -n1 || true)"
 if [[ ! "$publisher_token" =~ ^tk_[[:alnum:]]+$ ]]; then
   echo "Failed to generate publisher token" >&2
   exit 1
@@ -48,6 +68,7 @@ NOTIFY_SERVER=https://eletim.jp
 NOTIFY_TOPIC=agents
 NOTIFY_TOKEN=$publisher_token
 EOF
+trap - EXIT
 
 echo "==> Authentication credentials saved to $AUTH_ENV"
 echo "==> Anonymous access is denied; log in to the ntfy web app as $ADMIN_USER"

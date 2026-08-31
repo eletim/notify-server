@@ -42,6 +42,8 @@ On the first run, `start.sh`:
 
 Both `.webpush.env` and `.auth.env` are gitignored and created with restrictive permissions. Keep them private and back them up with the persistent server data.
 
+When upgrading an existing anonymous deployment, `start.sh` stops ntfy and removes legacy anonymous entries (`user_id` empty) from `webpush.db` before starting the private service. This prevents authenticated notifications from continuing to reach browsers that subscribed anonymously before access was restricted. Existing users must sign in and re-enable Web Push after the upgrade.
+
 Subsequent starts reuse the existing credentials and VAPID keys.
 
 Persistent ntfy data lives under `data/cache/`, including:
@@ -72,7 +74,7 @@ cat .auth.env
 
 Then sign in to `https://eletim.jp` with `NTFY_ADMIN_USER` and `NTFY_ADMIN_PASSWORD`.
 
-After enabling auth on an existing browser/PWA installation, sign in again before managing protected topic subscriptions.
+After enabling auth on an existing browser/PWA installation, sign in and re-enable Web Push. The upgrade deliberately removes old anonymous Web Push subscriptions, so they are not reused for protected topics.
 
 ### Machine publishing
 
@@ -90,7 +92,7 @@ The token belongs to the non-admin `publisher` user, whose ACL is write-only. In
 
 The repository contains a deliberately thin Bash CLI over ntfy's HTTP publish API. It hides ntfy-specific headers/auth details from callers such as PurpleMux.
 
-Install it for the current user:
+Install it for the current user (the only runtime dependency is `curl`, available as `sudo apt install curl` on Ubuntu):
 
 ```bash
 bash install-cli.sh
@@ -138,7 +140,32 @@ Additional options:
 --server URL
 ```
 
-Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables. The CLI exits non-zero on missing configuration, network failures, or HTTP authorization/errors and does not print the token.
+Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables; explicit environment values override the config file. `XDG_CONFIG_HOME` and `NOTIFY_CONFIG` are supported for alternate config locations. The CLI exits non-zero on missing configuration, network failures, or HTTP authorization/errors and does not print the token.
+
+### Rotate credentials and tokens
+
+To rotate the admin password, generate a new secret outside Git, apply it to ntfy, and update `NTFY_ADMIN_PASSWORD` in `.auth.env`:
+
+```bash
+read -rsp 'New admin password: ' NEW_ADMIN_PASSWORD; echo
+docker compose exec -T \
+  -e NTFY_PASSWORD="$NEW_ADMIN_PASSWORD" \
+  ntfy ntfy user change-pass admin
+```
+
+To rotate the publisher token, create a replacement and copy the `tk_...` value into `NOTIFY_TOKEN` in `.auth.env`:
+
+```bash
+docker compose exec -T ntfy ntfy token add --label=notify-cli-next publisher
+```
+
+Update every publisher integration, verify publishing with the replacement token, then revoke the old token:
+
+```bash
+docker compose exec -T ntfy ntfy token remove publisher OLD_TOKEN
+```
+
+List tokens with `docker compose exec -T ntfy ntfy token list`. Token rotation does not require changing the non-admin publisher's ACL. Keep `.auth.env` mode `0600` and never commit its contents.
 
 ## Mobile background notifications
 
@@ -196,6 +223,7 @@ NOTIFY_TOKEN="$NOTIFY_TOKEN" bin/notify send --topic agents --message 'CLI test'
 - `setup-auth.sh`: native ntfy user/ACL/token bootstrap
 - `bin/notify`: integration CLI
 - `install-cli.sh`: user-local CLI installer
+- `remove-anonymous-webpush.py`: idempotent upgrade cleanup for legacy anonymous Web Push subscriptions
 - `.webpush.env`: generated VAPID keys (secret, gitignored)
 - `.auth.env`: generated admin login + publisher token (secret, gitignored)
 

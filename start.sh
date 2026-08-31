@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 NTFY_IMAGE="binwiederhier/ntfy:v2.27.0"
+WEBPUSH_MIGRATION_IMAGE="python:3.13-alpine"
 WEBPUSH_ENV=".webpush.env"
 WEBPUSH_EMAIL="${NTFY_WEB_PUSH_EMAIL_ADDRESS:-admin@eletim.jp}"
 
@@ -34,6 +35,21 @@ fi
 
 echo "==> Pulling container images"
 docker compose pull
+
+if [[ -f data/cache/webpush.db ]]; then
+  echo "==> Pulling Web Push migration image"
+  docker pull "$WEBPUSH_MIGRATION_IMAGE"
+
+  echo "==> Stopping ntfy before Web Push subscription migration"
+  docker compose stop ntfy
+
+  echo "==> Removing legacy anonymous Web Push subscriptions"
+  docker run --rm \
+    --mount "type=bind,src=$PWD/data/cache,dst=/var/cache/ntfy" \
+    --mount "type=bind,src=$PWD/remove-anonymous-webpush.py,dst=/usr/local/bin/remove-anonymous-webpush.py,readonly" \
+    "$WEBPUSH_MIGRATION_IMAGE" \
+    python /usr/local/bin/remove-anonymous-webpush.py /var/cache/ntfy/webpush.db
+fi
 
 echo "==> Starting notify-server"
 docker compose up -d
