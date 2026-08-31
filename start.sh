@@ -38,9 +38,12 @@ docker compose pull
 echo "==> Starting notify-server"
 docker compose up -d
 
+bash setup-auth.sh
+
 echo "==> Current status"
 docker compose ps
 
 echo
 echo "notify-server is available at https://eletim.jp"
-echo "Web Push is configured; enable background notifications in the ntfy web app."
+echo "Web Push is configured and anonymous ntfy access is denied."
+echo "Admin login and machine publishing credentials are stored in .auth.env."
