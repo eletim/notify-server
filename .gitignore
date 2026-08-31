@@ -1,2 +1,3 @@
 data/
 .webpush.env
+.auth.env
