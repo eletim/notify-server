@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${NOTIFY_CONFIG:-$HOME/.config/notify/config}"
+if [[ -r "$CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+usage() {
+  cat <<'EOF'
+Usage:
+  notify send --message MESSAGE [options]
+
+Options:
+  --title TITLE       Notification title
+  --message MESSAGE   Notification body
+  --click URL         URL opened when the notification is tapped
+  --priority VALUE    ntfy priority (min, low, default, high, max or 1-5)
+  --tags TAGS         Comma-separated ntfy tags/emojis
+  --topic TOPIC       Override NOTIFY_TOPIC
+  --server URL        Override NOTIFY_SERVER
+  -h, --help          Show this help
+
+Configuration (environment or ~/.config/notify/config):
+  NOTIFY_SERVER=https://eletim.jp
+  NOTIFY_TOPIC=agents
+  NOTIFY_TOKEN=tk_...
+EOF
+}
+
+fail() {
+  echo "notify: $*" >&2
+  exit 2
+}
+
+[[ $# -gt 0 ]] || { usage; exit 2; }
+command="$1"
+shift
+
+case "$command" in
+  send) ;;
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  *) fail "unknown command: $command" ;;
+esac
+
+server="${NOTIFY_SERVER:-https://eletim.jp}"
+topic="${NOTIFY_TOPIC:-}"
+token="${NOTIFY_TOKEN:-}"
+title=""
+message=""
+click=""
+priority=""
+tags=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --title)
+      [[ $# -ge 2 ]] || fail "--title requires a value"
+      title="$2"; shift 2 ;;
+    --message)
+      [[ $# -ge 2 ]] || fail "--message requires a value"
+      message="$2"; shift 2 ;;
+    --click)
+      [[ $# -ge 2 ]] || fail "--click requires a value"
+      click="$2"; shift 2 ;;
+    --priority)
+      [[ $# -ge 2 ]] || fail "--priority requires a value"
+      priority="$2"; shift 2 ;;
+    --tags)
+      [[ $# -ge 2 ]] || fail "--tags requires a value"
+      tags="$2"; shift 2 ;;
+    --topic)
+      [[ $# -ge 2 ]] || fail "--topic requires a value"
+      topic="$2"; shift 2 ;;
+    --server)
+      [[ $# -ge 2 ]] || fail "--server requires a value"
+      server="$2"; shift 2 ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+done
+
+[[ -n "$message" ]] || fail "--message is required"
+[[ -n "$topic" ]] || fail "NOTIFY_TOPIC or --topic is required"
+[[ -n "$token" ]] || fail "NOTIFY_TOKEN is required"
+[[ "$topic" =~ ^[A-Za-z0-9_-]+$ ]] || fail "topic may only contain letters, digits, _ and -"
+
+server="${server%/}"
+[[ "$server" == https://* || "$server" == http://* ]] || fail "server must start with http:// or https://"
+
+curl_args=(
+  --fail-with-body
+  --silent
+  --show-error
+  --request POST
+  --header "Authorization: Bearer $token"
+  --data-binary "$message"
+)
+
+[[ -z "$title" ]] || curl_args+=(--header "Title: $title")
+[[ -z "$click" ]] || curl_args+=(--header "Click: $click")
+[[ -z "$priority" ]] || curl_args+=(--header "Priority: $priority")
+[[ -z "$tags" ]] || curl_args+=(--header "Tags: $tags")
+
+curl "${curl_args[@]}" "$server/$topic" >/dev/null
+echo "notification sent to $topic"
