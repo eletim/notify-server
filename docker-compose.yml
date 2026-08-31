@@ -4,7 +4,7 @@ services:
     container_name: notify-server-ntfy
     command: serve
     env_file:
-      - ./data/webpush.env
+      - ./.webpush.env
     environment:
       TZ: Asia/Tokyo
     volumes:
