@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 NTFY_IMAGE="binwiederhier/ntfy:v2.27.0"
-WEBPUSH_ENV="data/webpush.env"
+WEBPUSH_ENV=".webpush.env"
 WEBPUSH_EMAIL="${NTFY_WEB_PUSH_EMAIL_ADDRESS:-admin@eletim.jp}"
 
 mkdir -p data/cache data/caddy/data data/caddy/config
