@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIG_FILE="${NOTIFY_CONFIG:-$HOME/.config/notify/config}"
+CONFIG_FILE="${NOTIFY_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/notify/config}"
+
+# Preserve explicit environment values so they take precedence over the config file.
+server_from_env="${NOTIFY_SERVER-}"
+topic_from_env="${NOTIFY_TOPIC-}"
+token_from_env="${NOTIFY_TOKEN-}"
+server_is_set="${NOTIFY_SERVER+x}"
+topic_is_set="${NOTIFY_TOPIC+x}"
+token_is_set="${NOTIFY_TOKEN+x}"
+
 if [[ -r "$CONFIG_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$CONFIG_FILE"
 fi
+
+[[ -z "$server_is_set" ]] || NOTIFY_SERVER="$server_from_env"
+[[ -z "$topic_is_set" ]] || NOTIFY_TOPIC="$topic_from_env"
+[[ -z "$token_is_set" ]] || NOTIFY_TOKEN="$token_from_env"
 
 usage() {
   cat <<'EOF'
@@ -89,12 +102,13 @@ done
 [[ -n "$topic" ]] || fail "NOTIFY_TOPIC or --topic is required"
 [[ -n "$token" ]] || fail "NOTIFY_TOKEN is required"
 [[ "$topic" =~ ^[A-Za-z0-9_-]+$ ]] || fail "topic may only contain letters, digits, _ and -"
+command -v curl >/dev/null 2>&1 || fail "curl is required"
 
 server="${server%/}"
 [[ "$server" == https://* || "$server" == http://* ]] || fail "server must start with http:// or https://"
 
 curl_args=(
-  --fail-with-body
+  --fail
   --silent
   --show-error
   --request POST
@@ -107,5 +121,11 @@ curl_args=(
 [[ -z "$priority" ]] || curl_args+=(--header "Priority: $priority")
 [[ -z "$tags" ]] || curl_args+=(--header "Tags: $tags")
 
-curl "${curl_args[@]}" "$server/$topic" >/dev/null
+curl_status=0
+curl "${curl_args[@]}" "$server/$topic" >/dev/null || curl_status=$?
+if (( curl_status != 0 )); then
+  echo "notify: publish failed" >&2
+  exit "$curl_status"
+fi
+
 echo "notification sent to $topic"
