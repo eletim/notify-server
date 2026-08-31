@@ -14,6 +14,8 @@ if [[ ! -f "$config_dir/config" ]]; then
 NOTIFY_SERVER=https://eletim.jp
 NOTIFY_TOPIC=agents
 # NOTIFY_TOKEN=tk_...
+# NOTIFY_CONNECT_TIMEOUT=5
+# NOTIFY_TIMEOUT=15
 EOF
   chmod 600 "$config_dir/config"
   echo "==> Created $config_dir/config"

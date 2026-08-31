@@ -7,9 +7,13 @@ CONFIG_FILE="${NOTIFY_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/notify/config}"
 server_from_env="${NOTIFY_SERVER-}"
 topic_from_env="${NOTIFY_TOPIC-}"
 token_from_env="${NOTIFY_TOKEN-}"
+connect_timeout_from_env="${NOTIFY_CONNECT_TIMEOUT-}"
+timeout_from_env="${NOTIFY_TIMEOUT-}"
 server_is_set="${NOTIFY_SERVER+x}"
 topic_is_set="${NOTIFY_TOPIC+x}"
 token_is_set="${NOTIFY_TOKEN+x}"
+connect_timeout_is_set="${NOTIFY_CONNECT_TIMEOUT+x}"
+timeout_is_set="${NOTIFY_TIMEOUT+x}"
 
 if [[ -r "$CONFIG_FILE" ]]; then
   # shellcheck disable=SC1090
@@ -19,6 +23,8 @@ fi
 [[ -z "$server_is_set" ]] || NOTIFY_SERVER="$server_from_env"
 [[ -z "$topic_is_set" ]] || NOTIFY_TOPIC="$topic_from_env"
 [[ -z "$token_is_set" ]] || NOTIFY_TOKEN="$token_from_env"
+[[ -z "$connect_timeout_is_set" ]] || NOTIFY_CONNECT_TIMEOUT="$connect_timeout_from_env"
+[[ -z "$timeout_is_set" ]] || NOTIFY_TIMEOUT="$timeout_from_env"
 
 usage() {
   cat <<'EOF'
@@ -39,12 +45,20 @@ Configuration (environment or ~/.config/notify/config):
   NOTIFY_SERVER=https://eletim.jp
   NOTIFY_TOPIC=agents
   NOTIFY_TOKEN=tk_...
+  NOTIFY_CONNECT_TIMEOUT=5
+  NOTIFY_TIMEOUT=15
 EOF
 }
 
 fail() {
   echo "notify: $*" >&2
   exit 2
+}
+
+validate_timeout() {
+  local name="$1" value="$2"
+  [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "$name must be a positive number of seconds"
+  [[ ! "$value" =~ ^0+([.]0+)?$ ]] || fail "$name must be greater than zero"
 }
 
 [[ $# -gt 0 ]] || { usage; exit 2; }
@@ -63,6 +77,8 @@ esac
 server="${NOTIFY_SERVER:-https://eletim.jp}"
 topic="${NOTIFY_TOPIC:-}"
 token="${NOTIFY_TOKEN:-}"
+connect_timeout="${NOTIFY_CONNECT_TIMEOUT:-5}"
+timeout="${NOTIFY_TIMEOUT:-15}"
 title=""
 message=""
 click=""
@@ -102,17 +118,23 @@ done
 [[ -n "$topic" ]] || fail "NOTIFY_TOPIC or --topic is required"
 [[ -n "$token" ]] || fail "NOTIFY_TOKEN is required"
 [[ "$topic" =~ ^[A-Za-z0-9_-]+$ ]] || fail "topic may only contain letters, digits, _ and -"
+[[ "$token" != *$'\r'* && "$token" != *$'\n'* ]] || fail "NOTIFY_TOKEN must not contain a newline"
+validate_timeout "NOTIFY_CONNECT_TIMEOUT" "$connect_timeout"
+validate_timeout "NOTIFY_TIMEOUT" "$timeout"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 
 server="${server%/}"
 [[ "$server" == https://* || "$server" == http://* ]] || fail "server must start with http:// or https://"
 
 curl_args=(
+  --disable
   --fail
   --silent
   --show-error
+  --connect-timeout "$connect_timeout"
+  --max-time "$timeout"
   --request POST
-  --header "Authorization: Bearer $token"
+  --header @/dev/fd/3
   --data-binary "$message"
 )
 
@@ -121,8 +143,11 @@ curl_args=(
 [[ -z "$priority" ]] || curl_args+=(--header "Priority: $priority")
 [[ -z "$tags" ]] || curl_args+=(--header "Tags: $tags")
 
+# Do not propagate an exported token into curl's inspectable process environment.
+unset NOTIFY_TOKEN
+
 curl_status=0
-curl "${curl_args[@]}" "$server/$topic" >/dev/null || curl_status=$?
+curl "${curl_args[@]}" "$server/$topic" 3<<<"Authorization: Bearer $token" >/dev/null || curl_status=$?
 if (( curl_status != 0 )); then
   echo "notify: publish failed" >&2
   exit "$curl_status"

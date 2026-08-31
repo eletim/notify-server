@@ -122,14 +122,25 @@ notify send \
   --message 'PR #123 ready'
 ```
 
-With a PurpleMux/deep-link target:
+### PurpleMux integration
+
+PurpleMux currently navigates workspace and tab IDs through its CLI/runtime rather than URL routes. Use `purplemux workspaces` and `purplemux tab list -w WORKSPACE_ID` to obtain the IDs, and verify the target before notifying:
 
 ```bash
+workspace_id="${PURPLEMUX_WORKSPACE_ID:?set from purplemux workspaces}"
+tab_id="${PURPLEMUX_TAB_ID:?set from purplemux tab list}"
+purplemux tab status -w "$workspace_id" "$tab_id" >/dev/null
+
+# Valid when the notification is opened on the same host as PurpleMux.
+purplemux_url="${PURPLEMUX_URL:-http://127.0.0.1:$(<"$HOME/.purplemux/port")/}"
+
 notify send \
-  --title 'Claude finished' \
-  --message 'Review completed' \
-  --click 'http://purplemux/...'
+  --title 'PurpleMux task finished' \
+  --message "$workspace_id / $tab_id is ready for review" \
+  --click "$purplemux_url"
 ```
+
+This block can be called as the final step of a shell hook or workflow. For notifications opened on another device, set `purplemux_url` to the browser-reachable HTTPS root that device already uses for PurpleMux; clicking opens PurpleMux, and the notification message identifies the workspace/tab to select. Do not construct a workspace/tab deep link, because PurpleMux does not expose one.
 
 Additional options:
 
@@ -140,7 +151,7 @@ Additional options:
 --server URL
 ```
 
-Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables; explicit environment values override the config file. `XDG_CONFIG_HOME` and `NOTIFY_CONFIG` are supported for alternate config locations. The CLI exits non-zero on missing configuration, network failures, or HTTP authorization/errors and does not print the token.
+Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables; explicit environment values override the config file. `XDG_CONFIG_HOME` and `NOTIFY_CONFIG` are supported for alternate config locations. Connections time out after 5 seconds and the entire request after 15 seconds by default; set positive `NOTIFY_CONNECT_TIMEOUT` and `NOTIFY_TIMEOUT` values to override them. The CLI exits non-zero on missing configuration, network failures, timeouts, or HTTP authorization/errors and does not print the token or place it in curl's process arguments. User curl configuration is disabled for consistent, non-verbose operation.
 
 ### Rotate credentials and tokens
 
