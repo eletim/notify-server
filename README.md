@@ -103,6 +103,31 @@ curl \
 
 The machine token belongs to the non-admin `publisher` user, whose ACL is write-only for topics. Integrations do not need the admin password.
 
+### Rotate credentials and tokens
+
+To rotate the admin password, generate a new secret outside Git, apply it to ntfy, and update `NTFY_ADMIN_PASSWORD` in `.auth.env`:
+
+```bash
+read -rsp 'New admin password: ' NEW_ADMIN_PASSWORD; echo
+docker compose exec -T \
+  -e NTFY_PASSWORD="$NEW_ADMIN_PASSWORD" \
+  ntfy ntfy user change-pass admin
+```
+
+To rotate the publisher token, create a replacement and copy the `tk_...` value into `NOTIFY_TOKEN` in `.auth.env`:
+
+```bash
+docker compose exec -T ntfy ntfy token add --label=notify-cli-next publisher
+```
+
+Update every publisher integration, verify publishing with the replacement token, then revoke the old token:
+
+```bash
+docker compose exec -T ntfy ntfy token remove publisher OLD_TOKEN
+```
+
+List tokens with `docker compose exec -T ntfy ntfy token list`. Token rotation does not require changing the non-admin publisher's ACL. Keep `.auth.env` mode `0600` and never commit its contents.
+
 ## Mobile background notifications
 
 1. Open `https://eletim.jp` on the phone and sign in.
