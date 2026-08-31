@@ -1,11 +1,12 @@
 # notify-server
 
-Self-hosted notification server based on ntfy, with Caddy providing HTTPS, persistent Web Push, and private authentication.
+Self-hosted notification server based on ntfy, with Caddy providing HTTPS, persistent Web Push, private authentication, and a small integration CLI.
 
 ## Architecture
 
 ```text
-caller / CLI
+PurpleMux / LangGraph / shell / hooks
+  -> notify CLI
   -> HTTPS + Bearer token
   -> https://eletim.jp
   -> Caddy (:443)
@@ -83,25 +84,61 @@ NOTIFY_TOPIC=agents
 NOTIFY_TOKEN=tk_...
 ```
 
-Load it for a shell session:
+The token belongs to the non-admin `publisher` user, whose ACL is write-only. Integrations do not need the admin password.
+
+## notify CLI
+
+The repository contains a deliberately thin Bash CLI over ntfy's HTTP publish API. It hides ntfy-specific headers/auth details from callers such as PurpleMux.
+
+Install it for the current user:
 
 ```bash
-set -a
-source .auth.env
-set +a
+bash install-cli.sh
 ```
 
-Then publish with Bearer auth:
+This installs `notify` under `~/.local/bin` by default and creates:
+
+```text
+~/.config/notify/config
+```
+
+Configure it on each caller machine:
 
 ```bash
-curl \
-  -H "Authorization: Bearer $NOTIFY_TOKEN" \
-  -H 'Title: Test notification' \
-  -d 'hello from notify-server' \
-  "$NOTIFY_SERVER/$NOTIFY_TOPIC"
+NOTIFY_SERVER=https://eletim.jp
+NOTIFY_TOPIC=agents
+NOTIFY_TOKEN=tk_...
 ```
 
-The machine token belongs to the non-admin `publisher` user, whose ACL is write-only for topics. Integrations do not need the admin password.
+Use the write-only token from the server's `.auth.env`; do not copy the admin password into integrations.
+
+Send a notification:
+
+```bash
+notify send \
+  --title 'Codex finished' \
+  --message 'PR #123 ready'
+```
+
+With a PurpleMux/deep-link target:
+
+```bash
+notify send \
+  --title 'Claude finished' \
+  --message 'Review completed' \
+  --click 'http://purplemux/...'
+```
+
+Additional options:
+
+```text
+--topic TOPIC
+--priority VALUE
+--tags TAG1,TAG2
+--server URL
+```
+
+Configuration can also be supplied directly through `NOTIFY_SERVER`, `NOTIFY_TOPIC`, and `NOTIFY_TOKEN` environment variables. The CLI exits non-zero on missing configuration, network failures, or HTTP authorization/errors and does not print the token.
 
 ## Mobile background notifications
 
@@ -144,6 +181,12 @@ curl \
   "$NOTIFY_SERVER/$NOTIFY_TOPIC"
 ```
 
+CLI smoke test:
+
+```bash
+NOTIFY_TOKEN="$NOTIFY_TOKEN" bin/notify send --topic agents --message 'CLI test'
+```
+
 ## Configuration
 
 - `Caddyfile`: public HTTPS hostname and reverse proxy
@@ -151,6 +194,8 @@ curl \
 - `docker-compose.yml`: ntfy + Caddy services and persistent volumes
 - `start.sh`: one-command startup and first-run bootstrap
 - `setup-auth.sh`: native ntfy user/ACL/token bootstrap
+- `bin/notify`: integration CLI
+- `install-cli.sh`: user-local CLI installer
 - `.webpush.env`: generated VAPID keys (secret, gitignored)
 - `.auth.env`: generated admin login + publisher token (secret, gitignored)
 
