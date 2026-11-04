@@ -222,4 +222,10 @@ NOTIFY_INSTALL_DIR="$install_dir" XDG_CONFIG_HOME="$install_config" \
 [[ -f "$install_config/notify/config" ]]
 [[ "$(stat -c '%a' "$install_config/notify/config")" == 600 ]]
 
+# Public prefix must survive CLI URL joining, including a trailing slash.
+NOTIFY_SERVER=https://eletim.jp/ntfy/ NOTIFY_TOPIC=agents NOTIFY_TOKEN=test-token \
+  "$repo_dir/bin/notify" send --message 'subpath URL check' >/dev/null
+assert_arg 'https://eletim.jp/ntfy/agents'
+grep -qx 'NOTIFY_SERVER=https://eletim.jp/ntfy' "$install_config/notify/config"
+
 echo 'notify CLI tests passed'

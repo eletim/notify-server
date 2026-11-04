@@ -64,7 +64,7 @@ umask 077
 cat > "$AUTH_ENV" <<EOF
 NTFY_ADMIN_USER=$ADMIN_USER
 NTFY_ADMIN_PASSWORD=$admin_password
-NOTIFY_SERVER=https://eletim.jp
+NOTIFY_SERVER=https://eletim.jp/ntfy
 NOTIFY_TOPIC=agents
 NOTIFY_TOKEN=$publisher_token
 EOF

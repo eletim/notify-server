@@ -4,7 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 NTFY_IMAGE="binwiederhier/ntfy:v2.27.0"
-WEBPUSH_MIGRATION_IMAGE="python:3.13-alpine"
 WEBPUSH_ENV=".webpush.env"
 WEBPUSH_EMAIL="${NTFY_WEB_PUSH_EMAIL_ADDRESS:-admin@eletim.jp}"
 
@@ -33,23 +32,8 @@ else
   echo "==> Reusing existing Web Push keys from $WEBPUSH_ENV"
 fi
 
-echo "==> Pulling container images"
-docker compose pull
-
-if [[ -f data/cache/webpush.db ]]; then
-  echo "==> Pulling Web Push migration image"
-  docker pull "$WEBPUSH_MIGRATION_IMAGE"
-
-  echo "==> Stopping ntfy before Web Push subscription migration"
-  docker compose stop ntfy
-
-  echo "==> Removing legacy anonymous Web Push subscriptions"
-  docker run --rm \
-    --mount "type=bind,src=$PWD/data/cache,dst=/var/cache/ntfy" \
-    --mount "type=bind,src=$PWD/remove-anonymous-webpush.py,dst=/usr/local/bin/remove-anonymous-webpush.py,readonly" \
-    "$WEBPUSH_MIGRATION_IMAGE" \
-    python /usr/local/bin/remove-anonymous-webpush.py /var/cache/ntfy/webpush.db
-fi
+echo "==> Building pinned subpath image"
+docker compose build ntfy
 
 echo "==> Starting notify-server"
 docker compose up -d
@@ -60,6 +44,6 @@ echo "==> Current status"
 docker compose ps
 
 echo
-echo "notify-server is available at https://eletim.jp"
+echo "notify-server is available at https://eletim.jp/ntfy"
 echo "Web Push is configured and anonymous ntfy access is denied."
 echo "Admin login and machine publishing credentials are stored in .auth.env."

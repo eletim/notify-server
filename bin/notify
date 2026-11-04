@@ -43,7 +43,7 @@ Options:
   -h, --help          Show this help
 
 Configuration (environment or ~/.config/notify/config):
-  NOTIFY_SERVER=https://eletim.jp
+  NOTIFY_SERVER=https://eletim.jp/ntfy
   NOTIFY_TOPIC=agents
   NOTIFY_TOKEN=tk_...
   NOTIFY_CONNECT_TIMEOUT=5
@@ -89,7 +89,7 @@ case "$command" in
   *) fail "unknown command: $command" ;;
 esac
 
-server="${NOTIFY_SERVER:-https://eletim.jp}"
+server="${NOTIFY_SERVER:-https://eletim.jp/ntfy}"
 topic="${NOTIFY_TOPIC:-}"
 token="${NOTIFY_TOKEN:-}"
 export -n token
