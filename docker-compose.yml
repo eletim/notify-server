@@ -1,6 +1,10 @@
 services:
   ntfy:
-    image: binwiederhier/ntfy:v2.27.0
+    image: notify-server-ntfy:2.27.0-subpath
+    build:
+      context: .
+      args:
+        NTFY_BASE_PATH: ${NTFY_BASE_PATH:-/ntfy/}
     container_name: notify-server-ntfy
     command: serve
     env_file:

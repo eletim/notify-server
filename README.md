@@ -8,7 +8,7 @@ Self-hosted notification server based on ntfy, with Caddy providing HTTPS, persi
 PurpleMux / LangGraph / shell / hooks
   -> notify CLI
   -> HTTPS + Bearer token
-  -> https://eletim.jp
+  -> https://eletim.jp/ntfy
   -> Caddy (:443)
   -> ntfy (private, Docker network :80)
   -> browser Web Push provider
@@ -42,7 +42,9 @@ On the first run, `start.sh`:
 
 Both `.webpush.env` and `.auth.env` are gitignored and created with restrictive permissions. Keep them private and back them up with the persistent server data.
 
-When upgrading an existing anonymous deployment, `start.sh` stops ntfy and removes legacy anonymous entries (`user_id` empty) from `webpush.db` before starting the private service. This prevents authenticated notifications from continuing to reach browsers that subscribed anonymously before access was restricted. Existing users must sign in and re-enable Web Push after the upgrade.
+Existing accounts, tokens, Web Push subscriptions and VAPID keys are reused.
+The legacy anonymous-subscription cleanup script remains available for an
+explicit migration, but ordinary startup does not run it.
 
 Subsequent starts reuse the existing credentials and VAPID keys.
 
@@ -72,7 +74,7 @@ Read the generated admin credentials on the server:
 cat .auth.env
 ```
 
-Then sign in to `https://eletim.jp` with `NTFY_ADMIN_USER` and `NTFY_ADMIN_PASSWORD`.
+Then sign in to `https://eletim.jp/ntfy` with `NTFY_ADMIN_USER` and `NTFY_ADMIN_PASSWORD`.
 
 After enabling auth on an existing browser/PWA installation, sign in and re-enable Web Push. The upgrade deliberately removes old anonymous Web Push subscriptions, so they are not reused for protected topics.
 
@@ -81,7 +83,7 @@ After enabling auth on an existing browser/PWA installation, sign in and re-enab
 `.auth.env` also contains a write-only publisher token:
 
 ```text
-NOTIFY_SERVER=https://eletim.jp
+NOTIFY_SERVER=https://eletim.jp/ntfy
 NOTIFY_TOPIC=agents
 NOTIFY_TOKEN=tk_...
 ```
@@ -107,7 +109,7 @@ This installs `notify` under `~/.local/bin` by default and creates:
 Configure it on each caller machine:
 
 ```bash
-NOTIFY_SERVER=https://eletim.jp
+NOTIFY_SERVER=https://eletim.jp/ntfy
 NOTIFY_TOPIC=agents
 NOTIFY_TOKEN=tk_...
 ```
@@ -180,7 +182,7 @@ List tokens with `docker compose exec -T ntfy ntfy token list`. Token rotation d
 
 ## Mobile background notifications
 
-1. Open `https://eletim.jp` on the phone and sign in.
+1. Open `https://eletim.jp/ntfy` on the phone and sign in.
 2. Subscribe to the desired topic.
 3. Enable browser/background notifications in ntfy settings and grant notification permission.
 4. Install/add the ntfy PWA to the home screen if desired.
@@ -205,7 +207,7 @@ docker compose logs --tail=100
 Anonymous publishing should fail after authentication is enabled:
 
 ```bash
-curl -i -d test https://eletim.jp/agents
+curl -i -d test https://eletim.jp/ntfy/agents
 ```
 
 Authenticated publishing should succeed:
@@ -239,3 +241,170 @@ NOTIFY_TOKEN="$NOTIFY_TOKEN" bin/notify send --topic agents --message 'CLI test'
 - `.auth.env`: generated admin login + publisher token (secret, gitignored)
 
 The repository intentionally remains deployment/configuration glue around ntfy unless a requirement cannot be handled cleanly by ntfy itself.
+
+## Subpath deployment (/ntfy/)
+
+Upstream ntfy v2.27.0 rejects a base URL containing a path and assumes `/` in
+its UI. This repository builds a patched image from upstream commit
+`4c2b69e0591b51d7ed7b2e71954f0f7be936b47f` (Apache-2.0/GPL-2.0).
+`build/patch-subpath.py` fails if the expected source changes. It updates URL
+validation, public API configuration, React routing and auth reloads, assets,
+notification navigation, PWA manifest and Service Worker URLs. Caddy strips
+only `/ntfy/` before forwarding to ntfy; no root-level API/asset routes are exposed.
+The existing `/novel/`, OAuth metadata and `/id/` routes are retained.
+
+Public UI: **https://eletim.jp/ntfy/**. Publish endpoint:
+**https://eletim.jp/ntfy/agents** (POST/PUT, plain message body).
+Subscriptions use `/ntfy/agents/json`, `/ntfy/agents/sse` or `/ntfy/agents/ws`.
+Use the existing admin login at `https://eletim.jp/ntfy/login` to subscribe to
+`agents`; enable browser notifications after login. The new worker is
+`/ntfy/sw.js`, scoped to `/ntfy/`. Browsers with old root-scope installations
+may need to remove that old installation/worker and install this URL again.
+VAPID keys and server subscriptions are preserved; path changes may require
+re-enabling Web Push on each device.
+
+### Configuration and restart
+
+The frontend prefix is the Docker build argument `NTFY_BASE_PATH` (default
+`/ntfy/`). To change it, set that value in a private `.env`, update `base-url`
+in `server.yml` and the matching Caddy `redir`/`handle_path`, then rebuild.
+The public base URL must omit the trailing slash in `server.yml` and CLI
+configuration. Frontend builds normalize the prefix to one trailing slash.
+For this VPS all three settings are checked in as `/ntfy/`.
+
+```bash
+cd ~/notify-server
+docker compose build ntfy
+docker compose up -d --no-deps ntfy
+# Validate before applying proxy changes; reload preserves other services.
+docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+# Restart only ntfy to verify persistence (do not bring down the shared proxy).
+docker compose restart ntfy
+```
+
+`restart: unless-stopped` preserves automatic startup. `start.sh` builds the
+custom image and reuses existing credentials/VAPID keys. It no longer deletes
+anonymous subscriptions during ordinary startup. Before an upgrade, stop ntfy
+and back up `data/`, `.auth.env`, `.webpush.env`, configuration and the current
+Git diff into a private directory; use a root Docker helper if Caddy data is
+not readable by the host user. Do not replace the existing databases or run
+`docker compose down -v`. Restore both matching code/image and data if rolling
+back a database upgrade. The 2026-11-04 pre-change backup on this VPS is
+`~/ntfy-backups/20261104-subpath/before.tar.gz` (contains secrets).
+
+### Copyable integration configuration
+
+Obtain the existing token privately on the VPS (never commit or paste it into
+logs): `cd ~/notify-server && sed -n 's/^NOTIFY_TOKEN=//p' .auth.env`.
+The existing `publisher` token is write-only; it cannot subscribe/read.
+To issue a separate token: `docker compose exec -T ntfy ntfy token add
+--label=another-app publisher`. Save the result in the calling app's private
+configuration. Admin credentials remain in `~/notify-server/.auth.env`.
+
+```bash
+# ~/.config/notify/config (chmod 600)
+NOTIFY_SERVER=https://eletim.jp/ntfy
+NOTIFY_TOPIC=agents
+NOTIFY_TOKEN=<EXISTING_PUBLISHER_TOKEN>
+```
+
+For a shell environment, replace the placeholder and export the variables:
+
+```bash
+export NOTIFY_SERVER='https://eletim.jp/ntfy'
+export NOTIFY_TOPIC='agents'
+export NOTIFY_TOKEN='<EXISTING_PUBLISHER_TOKEN>'
+curl --fail-with-body --silent --show-error \
+  --header "Authorization: Bearer $NOTIFY_TOKEN" \
+  --header 'Title: Application notification' \
+  --header 'Click: https://eletim.jp/ntfy/agents' \
+  --data-binary 'Task completed' \
+  "$NOTIFY_SERVER/$NOTIFY_TOPIC"
+```
+
+AWM (`eletim/agent-workflow-manager`, `notification_settings.py`) uses settings
+`server`, `topic`, `replacementToken`, `enabled`, `onSuccess`, `onFailure`,
+`onStopped`. Set server to `https://eletim.jp/ntfy`, topic to `agents`, and
+replacementToken to the private publisher token. Its underlying CLI uses the
+same three `NOTIFY_*` keys. Environment options include:
+
+```bash
+AGENT_WORKFLOW_MANAGER_NOTIFICATIONS=enabled
+AGENT_WORKFLOW_MANAGER_NOTIFY_SUCCESS=true
+AGENT_WORKFLOW_MANAGER_NOTIFY_FAILURE=true
+AGENT_WORKFLOW_MANAGER_NOTIFY_STOPPED=false
+```
+
+AI村 (`server/notifier.mjs`) also uses the notify CLI configuration above:
+
+```bash
+VILLAGE_NOTIFICATIONS=true
+VILLAGE_NOTIFY_BIN=/home/YOUR_USER/.local/bin/notify
+VILLAGE_NOTIFY_TIMEOUT_MS=10000
+NOTIFY_CONFIG=/home/YOUR_USER/.config/notify/config
+```
+
+Set AI村's `VILLAGE_OFFICE_URL` to its actual browser-reachable office URL;
+this is the notification click target, not the notification server URL.
+Check the CLI with `notify send --title 'Test' --message 'Task completed'`.
+
+### Automated public verification
+
+```bash
+bash tests/notify-cli-test.sh
+set -a; source .auth.env; set +a
+python3 tests/public-smoke.py
+```
+
+The public smoke test uses admin credentials only to verify login and a live
+read subscription; publishing uses the existing write-only Bearer token.
+It sends one clearly marked test notification. Browser/device Web Push
+receipt still requires a device with notification permission and a push provider.
+
+Saved account subscriptions from an older root deployment also carry the old
+base URL. With ntfy stopped and a backup already taken, migrate those exact
+URL references without changing topics, accounts or tokens:
+
+```bash
+docker compose stop ntfy
+docker run --rm -v "$PWD/data/cache:/data" \
+  -v "$PWD/migrate-base-url.py:/migrate.py:ro" python:3.13-alpine \
+  python /migrate.py /data/auth.db https://eletim.jp https://eletim.jp/ntfy
+sed -i 's|^NOTIFY_SERVER=.*|NOTIFY_SERVER=https://eletim.jp/ntfy|' .auth.env
+docker compose up -d --no-deps ntfy
+```
+
+This migration is idempotent; unrelated external servers are preserved. On
+this VPS it migrated four saved topic subscriptions. Existing browser storage
+may need a fresh login to synchronize the updated server-side subscriptions.
+
+The optional browser test `tests/browser-smoke.cjs` requires Playwright and
+Chromium on the calling machine plus SSH access to `ubuntu@eletim.jp`. It reads
+credentials in memory, checks actual login and subscription UI, sends through
+the public HTTP API, waits for the message in the browser, and checks the worker
+scope and failed requests. Run with `node tests/browser-smoke.cjs` (or set
+`NODE_PATH` to an existing Playwright installation). It creates a login session,
+adds `agents` to the admin's subscriptions and publishes a marked test message.
+
+Deployment verification note (2026-11-04): the publisher token in `.auth.env`
+works, but its saved admin password does not match the current database.
+Existing passwords were deliberately retained. Use your current account
+password for login; do not assume the old generated admin password is current.
+Verification used a temporary read-only `agents` account, removed afterward.
+To test with separate credentials, export `NTFY_ADMIN_USER` and
+`NTFY_ADMIN_PASSWORD` after sourcing `.auth.env`; the variable names in the
+smoke test do not require that account to have the admin role. The browser
+script accepts `NOTIFY_TEST_LOGIN_FILE` pointing to a private VPS env file with
+those two entries, which overrides the `.auth.env` login only.
+
+Verified on the deployed VPS: CLI tests passed; patched upstream frontend
+unit tests passed (7 files, 90 tests); Chromium login, saved topic selection,
+public WebSocket message delivery, reload/settings, Service Worker scope and
+absence of asset/API 404s passed. Public authenticated HTTP publish/live JSON
+receive passed again after restarting ntfy. `/ntfy` redirects to `/ntfy/`;
+`/novel/` stayed HTTP 200 with an identical response hash. Original account
+password hashes/roles/tokens, VAPID keys and Push subscription keys were
+compared with the backup and preserved. Browser/provider delivery while the
+browser is closed, mobile PWA installation and a full VPS reboot were not
+verified; container restart persistence and Docker boot enablement were checked.

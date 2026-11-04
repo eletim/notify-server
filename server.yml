@@ -1,4 +1,4 @@
-base-url: https://eletim.jp
+base-url: https://eletim.jp/ntfy
 cache-file: /var/cache/ntfy/cache.db
 auth-file: /var/cache/ntfy/auth.db
 auth-default-access: deny-all

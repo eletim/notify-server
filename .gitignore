@@ -1,3 +1,6 @@
 data/
 .webpush.env
 .auth.env
+
+.env
+__pycache__/

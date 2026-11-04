@@ -11,7 +11,7 @@ install -m 0755 bin/notify "$destination_dir/notify"
 
 if [[ ! -f "$config_dir/config" ]]; then
   cat > "$config_dir/config" <<'EOF'
-NOTIFY_SERVER=https://eletim.jp
+NOTIFY_SERVER=https://eletim.jp/ntfy
 NOTIFY_TOPIC=agents
 # NOTIFY_TOKEN=tk_...
 # NOTIFY_CONNECT_TIMEOUT=5
